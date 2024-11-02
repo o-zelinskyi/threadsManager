@@ -52,11 +52,6 @@
       <string>CPU Time</string>
      </property>
     </column>
-    <column>
-     <property name="text">
-      <string>CPU</string>
-     </property>
-    </column>
    </widget>
    <widget class="QPushButton" name="suspendButton">
     <property name="geometry">
@@ -213,6 +208,16 @@
       <string>Semaphore</string>
      </property>
     </item>
+    <item>
+     <property name="text">
+      <string>Waiting funtions</string>
+     </property>
+    </item>
+    <item>
+     <property name="text">
+      <string>No sync</string>
+     </property>
+    </item>
    </widget>
    <widget class="QLabel" name="refreshLabel">
     <property name="geometry">
@@ -247,7 +252,7 @@
      <x>0</x>
      <y>0</y>
      <width>458</width>
-     <height>33</height>
+     <height>21</height>
     </rect>
    </property>
   </widget>

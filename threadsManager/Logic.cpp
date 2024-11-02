@@ -18,7 +18,7 @@ bool IsThreadSuspended(HANDLE thread)
         return false;
     }
 
-    bool isSuspended = previousSuspendCount == 0;
+    bool isSuspended = previousSuspendCount != 0;
 
     ResumeThread(thread);
 
@@ -67,38 +67,5 @@ QString GetThreadCpuTime(HANDLE threadHandle)
 
     double cpuTime = (totalTimeMs / 10000.0);
     
-    return QString::number(cpuTime) + "s";
-}
-
-QString GetThreadCpuLoad(HANDLE thread)
-{
-    int intervalMs = 1000;
-    FILETIME creationTime, exitTime, kernelTime1, userTime1;
-    FILETIME kernelTime2, userTime2;
-
-    if (!GetThreadTimes(thread, &creationTime, &exitTime, &kernelTime1, &userTime1))
-    {
-        return "-";
-    }
-
-    Sleep(intervalMs);
-
-    if (!GetThreadTimes(thread, &creationTime, &exitTime, &kernelTime2, &userTime2))
-    {
-        return "-";
-    }
-
-    ULONGLONG kernelTimeMs1 = ((ULONGLONG)kernelTime1.dwHighDateTime << 32) | kernelTime1.dwLowDateTime;
-    ULONGLONG userTimeMs1 = ((ULONGLONG)userTime1.dwHighDateTime << 32) | userTime1.dwLowDateTime;
-    ULONGLONG kernelTimeMs2 = ((ULONGLONG)kernelTime2.dwHighDateTime << 32) | kernelTime2.dwLowDateTime;
-    ULONGLONG userTimeMs2 = ((ULONGLONG)userTime2.dwHighDateTime << 32) | userTime2.dwLowDateTime;
-
-    ULONGLONG kernelDeltaMs = kernelTimeMs2 - kernelTimeMs1;
-    ULONGLONG userDeltaMs = userTimeMs2 - userTimeMs1;
-    ULONGLONG totalDeltaMs = kernelDeltaMs + userDeltaMs;
-
-    double cpuLoad = (totalDeltaMs / (double)(intervalMs * 10000)) * 100.0;
-
-
-    return QString::number(cpuLoad) + "%";
+    return QString::number(cpuTime) + "ms";
 }

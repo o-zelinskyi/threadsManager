@@ -1,5 +1,7 @@
 #include "threadsManager.h"
 #include <algorithm>
+#include <QtConcurrent/QtConcurrentRun>
+#include <QElapsedTimer>
 
 using std::vector;
 
@@ -50,7 +52,7 @@ void threadsManager::terminateAllThreads()
     {
         if (IsThreadRunning(thread))
         {
-            TerminateThread(thread, NULL);
+            TerminateThread(thread, 0);
         }
         CloseHandle(thread);
     }
@@ -63,7 +65,35 @@ void threadsManager::on_reloadButton_clicked()
     threadsManager::updateTable();
 }
 
-void threadsManager::insertProcessToTable(const HANDLE thread)
+void threadsManager::updateTable()
+{
+    ui.tableWidget->setRowCount(0);
+
+    for (size_t i = 0; i < threads.size(); ++i)
+    {
+        DWORD exitCode;
+        GetExitCodeThread(threads[i], &exitCode);
+        QString status;
+
+        if (exitCode == STILL_ACTIVE)
+        {
+            if (IsThreadSuspended(threads[i]))
+            {
+                status = "Suspended";
+            } else
+            {
+                status = "Running";
+            }
+        } else
+        {
+            status = "Terminated";
+        }
+
+        insertProcessToTable(threads[i], status);
+    }
+}
+
+void threadsManager::insertProcessToTable(const HANDLE thread, const QString& status)
 {
     int rowCount = ui.tableWidget->rowCount();
     ui.tableWidget->insertRow(rowCount);
@@ -71,7 +101,7 @@ void threadsManager::insertProcessToTable(const HANDLE thread)
     QTableWidgetItem* threadIdItem = new QTableWidgetItem(QString::number(GetThreadId(thread)));
     ui.tableWidget->setItem(rowCount, 0, threadIdItem);
 
-    QTableWidgetItem* statusItem = new QTableWidgetItem(getStatusQString(thread));
+    QTableWidgetItem* statusItem = new QTableWidgetItem(status);
     ui.tableWidget->setItem(rowCount, 1, statusItem);
 
     QTableWidgetItem* priorityItem = new QTableWidgetItem(QString::number(GetThreadPriority(thread)));
@@ -79,27 +109,6 @@ void threadsManager::insertProcessToTable(const HANDLE thread)
 
     QTableWidgetItem* cpuItem = new QTableWidgetItem(GetThreadCpuTime(thread));
     ui.tableWidget->setItem(rowCount, 3, cpuItem);
-
-    QTableWidgetItem* cpuLoadItem = new QTableWidgetItem(GetThreadCpuLoad(thread));
-    ui.tableWidget->setItem(rowCount, 4, cpuLoadItem);
-}
-
-void threadsManager::updateTable()
-{
-    ui.tableWidget->setRowCount(0);
-
-    for (size_t i = 0; i < threads.size();)
-    {
-        if (IsThreadRunning(threads[i]))
-        {
-            insertProcessToTable(threads[i]);
-            ++i;
-        } else
-        {
-            CloseHandle(threads[i]);
-            threads.erase(threads.begin() + i);
-        }
-    }
 }
 
 DWORD WINAPI linearSearchMin(LPVOID lp)
@@ -134,68 +143,63 @@ void updateGlobalMin(int localMinElement, int localMinIndex)
 
 void threadsManager::launchThreads(int method, int numOfThreads)
 {
+	// 0 - Mutex, 1 - Semaphore, 2 - Waiting?), 3 - No Sync
+
     threads.resize(numOfThreads);
     threadData.resize(numOfThreads);
 
     int chunkSize = Size / numOfThreads;
-
-    
     globalMin.Element = vec[0];
     globalMin.Index = 0;
+    
+	HANDLE syncHandle = NULL;
 
-    if (method == 0)
+    if (method != 3)
     {
-        HANDLE mutex = CreateMutex(NULL, FALSE, NULL);
-
-        for (int i = 0; i < numOfThreads; ++i)
-        {
-            threadData[i].arr = &vec;
-            threadData[i].start = i * chunkSize;
-            threadData[i].end = (i == numOfThreads - 1) ? Size : (i + 1) * chunkSize;
-            threadData[i].minElement = (*threadData[i].arr)[threadData[i].start];
-            threadData[i].minIndex = threadData[i].start;
-
-            
-            threads[i] = CreateThread(NULL, 0, linearSearchMin, &threadData[i], CREATE_SUSPENDED, 0);
-        }
-
-        WaitForMultipleObjects(numOfThreads, threads.data(), TRUE, INFINITE);
-        for (int i = 0; i < numOfThreads; ++i)
-        {
-            WaitForSingleObject(mutex, INFINITE);
-            updateGlobalMin(threadData[i].minElement, threadData[i].minIndex);
-            ReleaseMutex(mutex);
-        }
-
-        threads.clear();
-        CloseHandle(mutex);
-
-    } else if (method == 1)
-    {
-        HANDLE semaphore = CreateSemaphore(NULL, 1, 1, NULL);
-
-        for (int i = 0; i < numOfThreads; ++i)
-        {
-            threadData[i].arr = &vec;
-            threadData[i].start = i * chunkSize;
-            threadData[i].end = (i == numOfThreads - 1) ? Size : (i + 1) * chunkSize;
-            threadData[i].minElement = (*threadData[i].arr)[threadData[i].start];
-            threadData[i].minIndex = threadData[i].start;
-
-            threads[i] = CreateThread(NULL, 0, linearSearchMin, &threadData[i], 0, 0);
-        }
-
-        WaitForMultipleObjects(numOfThreads, threads.data(), TRUE, INFINITE);
-        for (int i = 0; i < numOfThreads; ++i)
-        {
-            WaitForSingleObject(semaphore, INFINITE);
-            updateGlobalMin(threadData[i].minElement, threadData[i].minIndex);
-            ReleaseSemaphore(semaphore, 1, NULL);
-        }
-        threads.clear();
-        CloseHandle(semaphore);
-
+        syncHandle = (method == 0) ? CreateMutex(NULL, FALSE, NULL) :
+            (method == 1) ? CreateSemaphore(NULL, 1, 1, NULL) :
+            CreateEvent(NULL, TRUE, FALSE, NULL);
     }
+
+    QElapsedTimer timer;
+    timer.start();
+    
+    for (int i = 0; i < numOfThreads; ++i)
+    {
+        threadData[i].arr = &vec;
+        threadData[i].start = i * chunkSize;
+        threadData[i].end = (i == numOfThreads - 1) ? Size : (i + 1) * chunkSize;
+        threadData[i].minElement = (*threadData[i].arr)[threadData[i].start];
+        threadData[i].minIndex = threadData[i].start;
+
+        threads[i] = CreateThread(NULL, 0, linearSearchMin, &threadData[i], 0, 0);
+    }
+
+    WaitForMultipleObjects(numOfThreads, threads.data(), TRUE, INFINITE);
+
+    if (method == 2) SetEvent(syncHandle);
+
+   /* CRITICAL_SECTION cs1;
+    ZeroMemory(&cs1, sizeof(cs1));
+    InitializeCriticalSection(&cs1);*/
+
+    for (int i = 0; i < numOfThreads; ++i)
+    {
+        if(method != 3) WaitForSingleObject(syncHandle, INFINITE);
+       //EnterCriticalSection(&cs1);
+        updateGlobalMin(threadData[i].minElement, threadData[i].minIndex);
+        //LeaveCriticalSection(&cs1);
+        if (method == 0) ReleaseMutex(syncHandle);
+        else if (method == 1) ReleaseSemaphore(syncHandle, 1, NULL);
+    }
+
+    qDebug() << "Global Minimum: " << globalMin.Element << " at index: " << globalMin.Index;
+
+    qint64 elapsedTime = timer.elapsed();
+    qDebug() << "Execution time:" << elapsedTime << "milliseconds";
+
+    threads.clear();
+    CloseHandle(syncHandle);
 }
 
 DWORD WINAPI threadsManager::launchThreadsWrapper(LPVOID param)
@@ -318,7 +322,6 @@ void threadsManager::on_priorityComboBox_currentIndexChanged(int index)
     }
 }
 
-
 void threadsManager::on_killButton_clicked()
 {
     QTableWidget* tableWidget = ui.tableWidget;
@@ -330,7 +333,6 @@ void threadsManager::on_killButton_clicked()
             TerminateThread(threads[currentRow], NULL);
             CloseHandle(threads[currentRow]); 
             QMessageBox::information(this, "Success", "Process terminated successfully.");
-            threads.erase(threads.begin() + currentRow);
             updateTable();
         } else
         {

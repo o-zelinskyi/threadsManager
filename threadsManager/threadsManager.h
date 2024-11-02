@@ -44,13 +44,9 @@ public:
 
     void on_reloadButton_clicked();
 
-    void insertProcessToTable(const HANDLE thread);
-
-    void updateTableUI();
-
-    static DWORD WINAPI updateTableThread(LPVOID param);
-
     void updateTable();
+
+    void insertProcessToTable(const HANDLE thread, const QString& status);
 
     void launchThreads(int method, int numOfThreads);
 
